@@ -1,11 +1,13 @@
 import tkinter as tk
 import sys
+import time
 import ctypes
 import threading
 from tkinter import messagebox
 import win32gui
+import win32con
 from pywinauto import Application
-from nobunaga_automation import NobunagaAutomation
+from nobunaga_automation import NobunagaAutomation, NobunagaStateCheck, NobunagaAction
 import crafting_logic
 
 class NobunagaToolApp:
@@ -17,9 +19,15 @@ class NobunagaToolApp:
         # 初始化核心邏輯類別
         self.auto = NobunagaAutomation()
         self.windows_data = []  # 存儲 [(hwnd, title, x, y), ...]
+        self.state_check = NobunagaStateCheck()
+        self.nobu_action = NobunagaAction()
         
         # 用於中斷執行緒的事件
         self.stop_event = threading.Event()
+
+        # 冥宮掛機樓層數
+        self.floor_display_str = tk.StringVar(value="已戰鬥: 0 次")
+        self.debug_mode_var = tk.BooleanVar(value=False)
 
         self._setup_ui()
         self.refresh_windows()
@@ -50,6 +58,14 @@ class NobunagaToolApp:
 
         btn_stop = tk.Button(frame_right, text="停止執行", command=self.stop_feature, bg="#ffcccc")
         btn_stop.pack(fill=tk.X)
+
+        # 偵錯模式開關
+        self.chk_debug_mode = tk.Checkbutton(frame_right, text="偵錯模式 (顯示影像搜尋)", variable=self.debug_mode_var, command=self._toggle_debug_mode)
+        self.chk_debug_mode.pack(fill=tk.X, pady=5)
+
+        # 冥宮掛機進度顯示
+        self.lbl_progress = tk.Label(frame_right, textvariable=self.floor_display_str, font=("Microsoft JhengHei", 12, "bold"), fg="blue")
+        self.lbl_progress.pack(fill=tk.X, pady=10)
 
     def refresh_windows(self):
         """利用 EnumWindows 過濾信長視窗"""
@@ -117,10 +133,29 @@ class NobunagaToolApp:
                 crafting_logic.start_crafting_loop(
                     hwnd, self.auto, self.stop_event, template_path='./img/材料不夠.png'
                 )
+            elif feature_name == "冥宮掛機":
+                # 呼叫獨立的冥宮邏輯
+                # 重置樓層數
+                self._update_dungeon_floor(0)
+                crafting_logic.dream_dungeon_loop(
+                    hwnd, self.auto, self.state_check,self.nobu_action, self.stop_event,
+                    update_floor_callback=self._update_dungeon_floor
+                )
+
+
             elif feature_name == "測試選項一":
                 # 範例：發送 a 鍵 (0x41)
-                self.auto.send_key(hwnd, 0x41, hold_time=0.2)
-                print(f"[{feature_name}] 已對視窗 {hwnd} 發送按鍵")
+                #self.auto.send_key(hwnd, 0x41, hold_time=0.2)
+                # 0x53 是 'S' 的虛擬鍵碼
+                # win32con.VK_SHIFT 是 Shift 的鍵碼
+                #self.auto.send_key(hwnd, 0x53, modifiers=[win32con.VK_SHIFT])
+                self.nobu_action.menu_team_hero_select(hwnd, self.auto, hero_team_index=3)
+
+                print(f"[{feature_name}] team_hero_select 完成")
+            elif feature_name == "測試選項二":
+                self.nobu_action.move_head_north(hwnd, self.auto)
+                print(f"[{feature_name}] move_head_north 完成")
+
             else:
                 # 預留其他功能的實作空間
                 while not self.stop_event.is_set():
@@ -129,6 +164,15 @@ class NobunagaToolApp:
                 
         except Exception as e:
             print(f"執行功能時發生錯誤: {e}")
+
+    def _update_dungeon_floor(self, floor_number):
+        """更新主畫面顯示的冥宮樓層數"""
+        self.floor_display_str.set(f"已戰鬥: {floor_number} 次")
+
+    def _toggle_debug_mode(self):
+        """切換自動化工具的偵錯模式"""
+        self.auto.debug_mode = self.debug_mode_var.get()
+        print(f"偵錯模式已設定為: {self.auto.debug_mode}")
 
 def is_admin():
     """檢查是否具有管理員權限"""

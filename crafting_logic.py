@@ -1,5 +1,6 @@
 import time
 import win32con
+from nobunaga_utils import NobunagaVKKey, DungeonState
 
 def start_crafting_loop(hwnd, automation, stop_event, template_path=None):
     """
@@ -9,7 +10,8 @@ def start_crafting_loop(hwnd, automation, stop_event, template_path=None):
     print("[稼業連點] 迴圈開始")
     
     # Enter 的虛擬鍵碼是 0x0D
-    VK_ENTER = win32con.VK_RETURN
+    #VK_ENTER = win32con.VK_RETURN
+    VK_ENTER = NobunagaVKKey.VK_ENTER.value
 
     while not stop_event.is_set():
         # 1. 送出 Enter
@@ -28,3 +30,107 @@ def start_crafting_loop(hwnd, automation, stop_event, template_path=None):
         time.sleep(0.1)
 
     print("[稼業連點] 迴圈已結束")
+
+def dream_dungeon_loop(hwnd, automation, state_check, nobu_action, stop_event, update_floor_callback=None):
+    """
+    冥宮掛機邏輯 (狀態機實作)
+    :param update_floor_callback: 用於更新主畫面樓層數的回調函數
+    """
+    print("[冥宮掛機] 任務開始")
+    floor_count = 0
+    current_state = DungeonState.FINDING_TARGET
+    
+    # 取得鍵碼
+    VK_W = NobunagaVKKey.VK_W.value
+    VK_ENTER = NobunagaVKKey.VK_ENTER.value
+    VK_V = NobunagaVKKey.VK_V.value
+    VK_N = NobunagaVKKey.VK_N.value
+    VK_J = NobunagaVKKey.VK_J.value
+
+
+    while not stop_event.is_set():
+        # --- 狀態 1: 前進至目標 ---
+        if current_state == DungeonState.FINDING_TARGET:
+            
+            # 按下Enter
+            automation.send_key(hwnd, VK_ENTER)
+            # 持續按下 W 往前移動
+            automation.send_key(hwnd, VK_W, hold_time=0.3)
+            
+            # 判斷是否進入戰鬥 (搜尋戰鬥 UI 圖像)
+            if state_check.is_combat_in(hwnd, automation):
+                print("[冥宮掛機] 偵測到戰鬥開始，切換狀態：戰鬥中")
+                current_state = DungeonState.IN_BATTLE
+        
+        # --- 狀態 2: 戰鬥中 ---
+        elif current_state == DungeonState.IN_BATTLE:
+            # 判斷戰鬥是否結束 (搜尋戰鬥結束標誌或結算畫面)
+            if state_check.is_combat_end(hwnd, automation):
+                print("[冥宮掛機] 戰鬥疑似結束，切換狀態：戰鬥結束點選")
+                current_state = DungeonState.BATTLE_END
+            else:
+                # 戰鬥中通常不需要頻繁點擊，每秒檢查一次即可
+                time.sleep(1)
+
+        # --- 狀態 3: 戰鬥結束 (處理物品與對話) ---
+        elif current_state == DungeonState.BATTLE_END:
+            # 嘗試送出 Enter 關閉結算視窗
+            automation.send_key(hwnd, VK_ENTER, hold_time=0.1)
+            
+            # 判斷結算畫面是否消失 (搜尋一般探索時的 UI 圖像)
+            if not state_check.is_combat_in(hwnd, automation):
+                print("[冥宮掛機] 結算完成，進入死亡檢查")
+                current_state = DungeonState.DEATH_CHECK
+            time.sleep(0.5)
+
+        # --- 狀態 4: 判斷是否死亡 ---
+        elif current_state == DungeonState.DEATH_CHECK:
+            # 搜尋「回到起點」或「冥界之門」相關對話框
+            if state_check.is_dead(hwnd, automation):
+                print("[冥宮掛機] 偵測到死亡/回到起點，進行轉向...")
+                # 送出 Enter 關閉死亡對話
+                automation.send_key(hwnd, VK_ENTER, hold_time=0.1)
+                time.sleep(1)
+                # 執行轉向正北
+                automation.send_key(hwnd, VK_N, hold_time=0.5)
+                current_state = DungeonState.RECALL_PARTY
+            else:
+                print("[冥宮掛機] 未發現死亡跡象，繼續前進")
+                current_state = DungeonState.NEXT_FLOOR
+
+        # --- 狀態 5: 重新叫出隊伍 ---
+        elif current_state == DungeonState.RECALL_PARTY:
+            print("[冥宮掛機] 正在重新叫出隊伍/隊友...")
+            #叫出隊伍三
+            #automation.send_key(hwnd, VK_V, hold_time=0.2)
+            nobu_action.menu_team_hero_select(hwnd, automation, hero_team_index=3)
+            
+            time.sleep(1) # 等待隊伍載入的時間
+            
+            # 完成後回到初始狀態
+            current_state = DungeonState.FINDING_TARGET
+        
+        # --- 狀態 6: 下一層 ---
+        elif current_state == DungeonState.NEXT_FLOOR:
+            print("[冥宮掛機] 檢查下一層對話. 移動到下一層...")
+
+            if state_check.is_next_floor_dialog(hwnd, automation):
+                automation.send_key(hwnd, VK_J, hold_time=0.2)
+                automation.send_key(hwnd, VK_ENTER)
+                floor_count += 1
+                if update_floor_callback:
+                    update_floor_callback(floor_count)
+                current_state = DungeonState.FINDING_TARGET
+                time.sleep(3)
+            else:
+                automation.send_key(hwnd, VK_ENTER)
+                automation.send_key(hwnd, VK_W, hold_time=0.3)
+
+
+
+
+
+        # 全域微小停頓避免 CPU 過高
+        time.sleep(0.4)
+
+    print("[冥宮掛機] 任務已停止")
