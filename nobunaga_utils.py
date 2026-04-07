@@ -20,13 +20,15 @@ class NobunagaVKKey(Enum):
 
 
 class DungeonState(Enum):
-    """冥宮掛機狀態機"""
+    """通用狀態機"""
+    IDLE = 0            # 空閒/等待
     FINDING_TARGET = 1  # 前進至目標
     IN_BATTLE = 2       # 戰鬥中
     BATTLE_END = 3      # 戰鬥結束(點收物品)
     DEATH_CHECK = 4     # 判斷是否死亡
     RECALL_PARTY = 5    # 重新叫出隊伍
     NEXT_FLOOR = 6      # 下一層
+    COMBAT_CLEANUP = 7  # 戰鬥結束清理
 
 
 class NobuNagaImageList:

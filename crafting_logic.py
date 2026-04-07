@@ -92,7 +92,8 @@ def dream_dungeon_loop(hwnd, automation, state_check, nobu_action, stop_event, u
                 automation.send_key(hwnd, VK_ENTER, hold_time=0.1)
                 time.sleep(1)
                 # 執行轉向正北
-                automation.send_key(hwnd, VK_N, hold_time=0.5)
+                nobu_action.move_head_north(hwnd, automation)
+                time.sleep(1)
                 current_state = DungeonState.RECALL_PARTY
             else:
                 print("[冥宮掛機] 未發現死亡跡象，繼續前進")
@@ -127,10 +128,64 @@ def dream_dungeon_loop(hwnd, automation, state_check, nobu_action, stop_event, u
                 automation.send_key(hwnd, VK_W, hold_time=0.3)
 
 
-
-
-
         # 全域微小停頓避免 CPU 過高
         time.sleep(0.4)
 
     print("[冥宮掛機] 任務已停止")
+
+def follow_combat_loop(hwnd, automation, state_check, nobu_action, stop_event, update_floor_callback=None, item_use=True):
+    """
+    跟隨戰鬥邏輯
+    1. 檢查是否進入戰鬥。
+    2. 戰鬥中檢查物品使用。
+    3. 戰鬥結束檢查確定對話框。
+    4. 戰鬥結束後清理畫面。
+    """
+    print("[跟隨戰鬥] 任務開始")
+    battle_count = 0
+    current_state = DungeonState.IDLE  # 使用 DungeonState 管理狀態
+    
+    VK_ENTER = NobunagaVKKey.VK_ENTER.value
+    # 假設物品圖片路徑，可根據實際需求修改
+    ITEM_IMAGE_PATH = 'img/選單_物品.png' 
+    CONFIRM_IMAGE_PATH = 'img/對話_確定.png'
+
+    while not stop_event.is_set():
+        # --- 狀態 1: 檢查是否進入戰鬥 ---
+        if current_state == DungeonState.IDLE:
+            if state_check.is_combat_in(hwnd, automation):
+                print("[跟隨戰鬥] 偵測到戰鬥開始，切換至戰鬥中狀態")
+                current_state = DungeonState.IN_BATTLE
+
+        # --- 狀態 2: 戰鬥中 (檢查物品) ---
+        elif current_state == DungeonState.IN_BATTLE:
+            if item_use:
+                # 檢查是否有物品圖片，有則點擊
+                if automation.find_image_click(hwnd, ITEM_IMAGE_PATH):
+                    print(f"[跟隨戰鬥] 偵測到物品，執行點擊: {ITEM_IMAGE_PATH}")
+            
+            # 檢查是否戰鬥結束
+            if state_check.is_combat_end(hwnd, automation):
+                print("[跟隨戰鬥] 偵測到戰鬥結束標誌，進入結算狀態")
+                current_state = DungeonState.BATTLE_END
+
+        # --- 狀態 3: 檢查結束對話 ---
+        elif current_state == DungeonState.BATTLE_END:
+            # 檢查戰鬥畫面是否消失
+            time.sleep(0.5)
+            if not state_check.is_combat_in(hwnd, automation):
+                print("[跟隨戰鬥] 戰鬥已完全結束，回到空閒狀態")
+                battle_count += 1
+                if update_floor_callback:
+                    update_floor_callback(battle_count)
+                current_state = DungeonState.IDLE
+            else:
+                #檢查是否有物品選擇
+                if automation.find_image_click(hwnd, CONFIRM_IMAGE_PATH):
+                    print("[跟隨戰鬥] 偵測並點擊物品選擇確定按鈕")
+                else:
+                    # 畫面未消失則送出 Enter
+                    automation.send_key(hwnd, VK_ENTER, hold_time=0.1)
+
+        time.sleep(0.5)  # 避免迴圈過快
+    print("[跟隨戰鬥] 任務已停止")

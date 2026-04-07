@@ -22,12 +22,18 @@ class NobunagaToolApp:
         self.state_check = NobunagaStateCheck()
         self.nobu_action = NobunagaAction()
         
+        # Tooltip 相關變數
+        self.tooltip_window = None
+        self.last_hover_index = -1
+
         # 用於中斷執行緒的事件
         self.stop_event = threading.Event()
 
         # 冥宮掛機樓層數
         self.floor_display_str = tk.StringVar(value="已戰鬥: 0 次")
+        self.time_display_str = tk.StringVar(value="最後更新: -")
         self.debug_mode_var = tk.BooleanVar(value=False)
+        self.item_use_var = tk.BooleanVar(value=False)
 
         self._setup_ui()
         self.refresh_windows()
@@ -38,6 +44,10 @@ class NobunagaToolApp:
         frame_left.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         
         self.lb_windows = tk.Listbox(frame_left, font=("Microsoft JhengHei", 10), exportselection=False)
+        # 綁定滑鼠移動與離開事件
+        self.lb_windows.bind("<Motion>", self._on_listbox_motion)
+        self.lb_windows.bind("<Leave>", self._hide_tooltip)
+        
         self.lb_windows.pack(fill=tk.BOTH, expand=True)
         
         btn_refresh = tk.Button(frame_left, text="重新整理視窗", command=self.refresh_windows)
@@ -48,7 +58,7 @@ class NobunagaToolApp:
         frame_right.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
         
         self.lb_features = tk.Listbox(frame_right, font=("Microsoft JhengHei", 10), exportselection=False)
-        features = ["稼業連點", "冥宮掛機", "測試選項一", "測試選項二"]
+        features = ["稼業連點", "冥宮掛機", "跟隨戰鬥", "測試選項一", "測試選項二"]
         for f in features:
             self.lb_features.insert(tk.END, f)
         self.lb_features.pack(fill=tk.BOTH, expand=True)
@@ -63,9 +73,16 @@ class NobunagaToolApp:
         self.chk_debug_mode = tk.Checkbutton(frame_right, text="偵錯模式 (顯示影像搜尋)", variable=self.debug_mode_var, command=self._toggle_debug_mode)
         self.chk_debug_mode.pack(fill=tk.X, pady=5)
 
+        # 物品使用開關
+        self.chk_item_use = tk.Checkbutton(frame_right, text="跟隨戰鬥：自動使用物品", variable=self.item_use_var)
+        self.chk_item_use.pack(fill=tk.X, pady=5)
+
         # 冥宮掛機進度顯示
         self.lbl_progress = tk.Label(frame_right, textvariable=self.floor_display_str, font=("Microsoft JhengHei", 12, "bold"), fg="blue")
-        self.lbl_progress.pack(fill=tk.X, pady=10)
+        self.lbl_progress.pack(fill=tk.X, pady=(10, 0))
+
+        self.lbl_time = tk.Label(frame_right, textvariable=self.time_display_str, font=("Microsoft JhengHei", 9), fg="gray")
+        self.lbl_time.pack(fill=tk.X, pady=(0, 10))
 
     def refresh_windows(self):
         """利用 EnumWindows 過濾信長視窗"""
@@ -141,6 +158,13 @@ class NobunagaToolApp:
                     hwnd, self.auto, self.state_check,self.nobu_action, self.stop_event,
                     update_floor_callback=self._update_dungeon_floor
                 )
+            elif feature_name == "跟隨戰鬥":
+                # 呼叫跟隨戰鬥邏輯，傳入 UI 上的勾選狀態
+                crafting_logic.follow_combat_loop(
+                    hwnd, self.auto, self.state_check, self.nobu_action, self.stop_event,
+                    update_floor_callback=self._update_dungeon_floor,
+                    item_use=self.item_use_var.get()
+                )
 
 
             elif feature_name == "測試選項一":
@@ -168,11 +192,50 @@ class NobunagaToolApp:
     def _update_dungeon_floor(self, floor_number):
         """更新主畫面顯示的冥宮樓層數"""
         self.floor_display_str.set(f"已戰鬥: {floor_number} 次")
+        current_time = time.strftime("%Y-%m-%d, %H:%M:%S")
+        self.time_display_str.set(f"最後更新: {current_time}")
 
     def _toggle_debug_mode(self):
         """切換自動化工具的偵錯模式"""
         self.auto.debug_mode = self.debug_mode_var.get()
         print(f"偵錯模式已設定為: {self.auto.debug_mode}")
+
+    def _on_listbox_motion(self, event):
+        """當滑鼠在 Listbox 上移動時，判斷是否顯示 Tooltip"""
+        index = self.lb_windows.nearest(event.y)
+        
+        # 如果索引改變了，先隱藏舊的 Tooltip
+        if index != self.last_hover_index:
+            self._hide_tooltip()
+            self.last_hover_index = index
+            
+            # 檢查滑鼠是否真的在該項目的範圍內 (避免 Listbox 空白處也觸發)
+            bbox = self.lb_windows.bbox(index)
+            if bbox and bbox[1] <= event.y <= bbox[1] + bbox[3]:
+                full_text = self.lb_windows.get(index)
+                self._show_tooltip(event.x_root + 15, event.y_root + 10, full_text)
+
+    def _show_tooltip(self, x, y, text):
+        """建立並顯示 Tooltip 視窗"""
+        if self.tooltip_window or not text:
+            return
+            
+        self.tooltip_window = tk.Toplevel(self.root)
+        # 移除視窗邊框與標題列
+        self.tooltip_window.wm_overrideredirect(True)
+        self.tooltip_window.wm_geometry(f"+{x}+{y}")
+        
+        label = tk.Label(self.tooltip_window, text=text, justify=tk.LEFT,
+                         background="#ffffca", relief=tk.SOLID, borderwidth=1,
+                         font=("Microsoft JhengHei", 9), padx=3, pady=3)
+        label.pack()
+
+    def _hide_tooltip(self, event=None):
+        """隱藏 Tooltip 視窗"""
+        if self.tooltip_window:
+            self.tooltip_window.destroy()
+            self.tooltip_window = None
+        self.last_hover_index = -1
 
 def is_admin():
     """檢查是否具有管理員權限"""
