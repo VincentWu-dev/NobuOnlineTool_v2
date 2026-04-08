@@ -10,11 +10,29 @@ from pywinauto import Application
 from nobunaga_automation import NobunagaAutomation, NobunagaStateCheck, NobunagaAction
 import crafting_logic
 
+class TextRedirector:
+    """將 sys.stdout 重新導向至 Tkinter Text 元件的輔助類別"""
+    def __init__(self, widget):
+        self.widget = widget
+
+    def write(self, str_msg):
+        # 使用 after 確保在主執行緒更新 UI，避免多執行緒衝突
+        self.widget.after(0, self._insert_text, str_msg)
+
+    def _insert_text(self, str_msg):
+        self.widget.configure(state='normal')
+        self.widget.insert(tk.END, str_msg)
+        self.widget.see(tk.END) # 自動捲動到最下方
+        self.widget.configure(state='disabled')
+
+    def flush(self):
+        pass
+
 class NobunagaToolApp:
     def __init__(self, root):
         self.root = root
         self.root.title("信長Online 輔助小工具")
-        self.root.geometry("700x450")
+        self.root.geometry("750x650") # 增加高度以容納日誌區
         
         # 初始化核心邏輯類別
         self.auto = NobunagaAutomation()
@@ -28,6 +46,7 @@ class NobunagaToolApp:
 
         # 用於中斷執行緒的事件
         self.stop_event = threading.Event()
+        self.task_thread = None
 
         # 冥宮掛機樓層數
         self.floor_display_str = tk.StringVar(value="已戰鬥: 0 次")
@@ -37,10 +56,18 @@ class NobunagaToolApp:
 
         self._setup_ui()
         self.refresh_windows()
+        
+        # 重新導向 print 輸出
+        sys.stdout = TextRedirector(self.txt_logs)
+        sys.stderr = TextRedirector(self.txt_logs) # 同時捕獲錯誤訊息
 
     def _setup_ui(self):
+        # 上方主要容器
+        frame_top = tk.Frame(self.root)
+        frame_top.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+
         # 左側清單
-        frame_left = tk.LabelFrame(self.root, text="遊戲視窗列表", padx=10, pady=10)
+        frame_left = tk.LabelFrame(frame_top, text="遊戲視窗列表", padx=10, pady=10)
         frame_left.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         
         self.lb_windows = tk.Listbox(frame_left, font=("Microsoft JhengHei", 10), exportselection=False)
@@ -54,7 +81,7 @@ class NobunagaToolApp:
         btn_refresh.pack(fill=tk.X, pady=5)
 
         # 右側功能
-        frame_right = tk.LabelFrame(self.root, text="功能清單", padx=10, pady=10)
+        frame_right = tk.LabelFrame(frame_top, text="功能清單", padx=10, pady=10)
         frame_right.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
         
         self.lb_features = tk.Listbox(frame_right, font=("Microsoft JhengHei", 10), exportselection=False)
@@ -84,6 +111,17 @@ class NobunagaToolApp:
         self.lbl_time = tk.Label(frame_right, textvariable=self.time_display_str, font=("Microsoft JhengHei", 9), fg="gray")
         self.lbl_time.pack(fill=tk.X, pady=(0, 10))
 
+        # 下方日誌區域
+        frame_log = tk.LabelFrame(self.root, text="執行日誌", padx=5, pady=5)
+        frame_log.pack(side=tk.BOTTOM, fill=tk.BOTH, expand=False)
+
+        self.txt_logs = tk.Text(frame_log, font=("Microsoft JhengHei", 10), state='disabled', bg="#f0f0f0", height=12)
+        scrollbar = tk.Scrollbar(frame_log, command=self.txt_logs.yview)
+        self.txt_logs.configure(yscrollcommand=scrollbar.set)
+        
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.txt_logs.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
     def refresh_windows(self):
         """利用 EnumWindows 過濾信長視窗"""
         self.lb_windows.delete(0, tk.END)
@@ -108,6 +146,8 @@ class NobunagaToolApp:
         # 取得選中的視窗與功能
         win_idx = self.lb_windows.curselection()
         feat_idx = self.lb_features.curselection()
+        print(f"選中的視窗索引: {win_idx}, 選中的功能索引: {feat_idx}")
+
 
         if not win_idx or not feat_idx:
             messagebox.showwarning("提示", "請同時選擇一個視窗與一個功能")
@@ -117,16 +157,35 @@ class NobunagaToolApp:
         hwnd = target_win[0]
         feature_name = self.lb_features.get(feat_idx[0])
 
+        # 檢查目前是否有正在執行的任務，若有則先結束它
+        if self.task_thread and self.task_thread.is_alive():
+            print(f"偵測到任務仍在執行，正在請求停止並排程啟動: {feature_name}")
+            self.stop_feature()
+            # 使用非阻塞方式等待並啟動
+            self._wait_for_thread_and_run(hwnd, target_win[1], feature_name)
+        else:
+            self._start_task_thread(hwnd, target_win[1], feature_name)
+
+    def _wait_for_thread_and_run(self, hwnd, title, feature_name):
+        """非阻塞等待執行緒結束後再啟動"""
+        if self.task_thread and self.task_thread.is_alive():
+            # 每 100 毫秒檢查一次，主迴圈不會被卡死
+            self.root.after(100, lambda: self._wait_for_thread_and_run(hwnd, title, feature_name))
+        else:
+            print(f"舊執行緒已成功釋放，啟動新功能: {feature_name}")
+            self._start_task_thread(hwnd, title, feature_name)
+
+    def _start_task_thread(self, hwnd, title, feature_name):
+        """重設訊號並正式啟動執行緒"""
         # 重設停止訊號
         self.stop_event.clear()
 
-        # 使用 Thread 執行功能，避免 UI 凍結
-        task_thread = threading.Thread(
+        self.task_thread = threading.Thread(
             target=self._execute_feature_logic, 
-            args=(hwnd, target_win[1], feature_name), 
-            daemon=True # 設定為守護執行緒，主程式關閉時會一併停止
+            args=(hwnd, title, feature_name), 
+            daemon=True
         )
-        task_thread.start()
+        self.task_thread.start()
 
     def stop_feature(self):
         """發送停止訊號給背景執行緒"""
@@ -246,6 +305,11 @@ def is_admin():
 
 if __name__ == "__main__":
     if is_admin():
+        # 隱藏背景的終端機視窗 (如果目前是透過 python.exe 啟動)
+        whnd = ctypes.windll.kernel32.GetConsoleWindow()
+        if whnd != 0:
+            ctypes.windll.user32.ShowWindow(whnd, 0)  # 0 代表 SW_HIDE
+            
         root = tk.Tk()
         app = NobunagaToolApp(root)
         root.mainloop()
