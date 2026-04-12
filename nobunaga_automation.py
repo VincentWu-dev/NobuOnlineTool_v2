@@ -147,11 +147,40 @@ class NobunagaAutomation:
 
                 # 轉換為視窗客戶區 (Client Area) 座標，這是 PostMessage 要求的座標系
                 client_x, client_y = win32gui.ScreenToClient(hwnd, screen_pos)
+
+                if self.debug_mode:
+                    c_left, c_top, c_right, c_bottom = win32gui.GetClientRect(hwnd)
+                    print(f"DEBUG [find_image_click]:")
+                    print(f"  - 樣板路徑: {template_path} ({w}x{h})")
+                    print(f"  - 匹配左上角 (視窗相對): {match_pos}")
+                    print(f"  - 點擊中心點 (視窗相對): ({center_x}, {center_y})")
+                    print(f"  - 最終 Client 座標: ({client_x}, {client_y})")
+                    print(f"  - 客戶區寬高: {c_right}x{c_bottom}")
+
+                    # 視覺化除錯：擷取目前視窗並標示位置
+                    img = ImageGrab.grab(bbox=rect)
+                    debug_img = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+                    # 繪製匹配到的紅色外框
+                    cv2.rectangle(debug_img, (match_pos[0], match_pos[1]), 
+                                  (match_pos[0] + w, match_pos[1] + h), (0, 0, 255), 2)
+                    # 繪製預計點擊的綠色實心圓點
+                    cv2.circle(debug_img, (center_x, center_y), 7, (0, 255, 0), -1)
+                    cv2.putText(debug_img, f"CLICK HERE ({client_x}, {client_y})", 
+                                (center_x + 10, center_y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+
+                    cv2.imshow("Debug: find_image_click", debug_img)
+                    cv2.waitKey(1000) # 暫停 1 秒讓開發者確認
+                    cv2.destroyAllWindows()
+
                 lparam = win32api.MAKELONG(client_x, client_y)
 
+                # 激活視窗並模擬移動與點擊
+                win32gui.SendMessage(hwnd, win32con.WM_ACTIVATE, win32con.WA_CLICKACTIVE, 0)
+                win32api.PostMessage(hwnd, win32con.WM_MOUSEMOVE, 0, lparam)
+                time.sleep(0.05)
                 # 發送滑鼠按下與放開訊息 (後台模擬點擊)
                 win32api.PostMessage(hwnd, win32con.WM_LBUTTONDOWN, win32con.MK_LBUTTON, lparam)
-                time.sleep(0.05) # 短暫停頓模擬物理動作
+                time.sleep(0.1) # 增加點擊持續時間，確保遊戲引擎偵測到
                 win32api.PostMessage(hwnd, win32con.WM_LBUTTONUP, 0, lparam)
                 
                 return True
@@ -210,8 +239,8 @@ class NobunagaStateCheck:
         return result is not None
     
     def is_dead(self, hwnd, automation):
-        """檢查視窗畫面是否有 img/成佛對話.png. 相符則成立"""
-        result = automation.find_image(hwnd, 'img/成佛對話.png')
+        """檢查視窗畫面是否有 img/成佛圖示.png. 相符則成立"""
+        result = automation.find_image(hwnd, 'img/成佛圖示.png')
         return result is not None
 
     def is_next_floor_dialog(self, hwnd, automation):
@@ -280,14 +309,15 @@ class NobunagaAction:
         VK_V = NobunagaVKKey.VK_V.value
         VK_A = NobunagaVKKey.VK_A.value
 
+        isNorthFound = False
+
+
         # 1. 檢查視角狀態
         # 如果沒偵測到第一人稱圖示，代表可能是第三人稱，按下 V 切換
-        '''
         if not automation.find_image(hwnd, 'img/第一人稱.png'):
             print("[動作] 非第一人稱視角，按下 V 鍵切換...")
             automation.send_key(hwnd, VK_V, hold_time=0.2)
             time.sleep(1.0) # 等待視角切換動畫
-        '''
 
         # 2. 旋轉尋找正北
         # 使用迴圈持續短按 A 鍵旋轉，直到在畫面上（通常是上方羅盤）偵測到 '北' 字
@@ -296,11 +326,17 @@ class NobunagaAction:
             #if automation.find_image(hwnd, 'img/北0.png', start_x=986, start_y=911, search_width=50, search_height=30):
             if automation.find_image(hwnd, 'img/北0.png', start_x=975, start_y=690, search_width=60, search_height=35):
                 print(f"[動作] 已偵測到正北圖像 (嘗試次數: {i+1})")
-                return True
+                isNorthFound = True
+                break
             
             # 尚未發現正北，短按 A 鍵向左微調
             automation.send_key(hwnd, VK_A, hold_time=0.05)
             time.sleep(0.1) # 留給遊戲畫面渲染與截圖的時間
 
-        print("[動作] 轉向失敗：已達到最大嘗試次數")
-        return False
+        #print("[動作] 轉向失敗：已達到最大嘗試次數")
+        if automation.find_image(hwnd, 'img/第一人稱.png'):
+            print("[動作] 第一人稱視角，按下 V 鍵切換...")
+            automation.send_key(hwnd, VK_V, hold_time=0.2)
+            time.sleep(1.0) # 等待視角切換動畫
+
+        return isNorthFound
