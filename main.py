@@ -5,6 +5,7 @@ import ctypes
 import threading
 from tkinter import messagebox
 import win32gui
+import win32api
 import win32con
 from pywinauto import Application
 from nobunaga_automation import NobunagaAutomation, NobunagaStateCheck, NobunagaAction
@@ -32,7 +33,7 @@ class NobunagaToolApp:
     def __init__(self, root):
         self.root = root
         self.root.title("信長Online 輔助小工具")
-        self.root.geometry("750x650") # 增加高度以容納日誌區
+        self._adjust_window_position()
         
         # 初始化核心邏輯類別
         self.auto = NobunagaAutomation()
@@ -60,6 +61,34 @@ class NobunagaToolApp:
         # 重新導向 print 輸出
         sys.stdout = TextRedirector(self.txt_logs)
         sys.stderr = TextRedirector(self.txt_logs) # 同時捕獲錯誤訊息
+
+    def _adjust_window_position(self):
+        """檢查系統中是否存在信長視窗，並根據其位置調整工具啟動座標以避免重疊"""
+        width, height = 750, 650
+        # 預設啟動位置
+        target_x, target_y = 100, 100
+
+        # 尋找信長之野望的主視窗 (ClassName 為 Nobunaga Online Game MainFrame)
+        hwnd_game = win32gui.FindWindow("Nobunaga Online Game MainFrame", None)
+
+        # 判斷視窗是否存在、是否可見、以及是否並非最小化 (Iconic 代表最小化)
+        if hwnd_game and win32gui.IsWindowVisible(hwnd_game) and not win32gui.IsIconic(hwnd_game):
+            try:
+                rect = win32gui.GetWindowRect(hwnd_game)
+                g_left, g_top, g_right, g_bottom = rect
+                screen_w = win32api.GetSystemMetrics(win32con.SM_CXSCREEN)
+                # 優先嘗試放在遊戲視窗右邊 (留 10 像素間距)
+                if g_right + width + 10 <= screen_w:
+                    target_x = g_right + 10
+                    target_y = g_top
+                # 如果右邊沒空間，則嘗試放在遊戲視窗左邊
+                elif g_left - width - 10 >= 0:
+                    target_x = g_left - width - 10
+                    target_y = g_top
+            except Exception as e:
+                print(f"自動調整視窗位置失敗: {e}")
+
+        self.root.geometry(f"{width}x{height}+{target_x}+{target_y}")
 
     def _setup_ui(self):
         # 上方主要容器
@@ -237,6 +266,7 @@ class NobunagaToolApp:
                 print(f"[{feature_name}] team_hero_select 完成")
             elif feature_name == "測試選項二":
                 self.nobu_action.move_head_north(hwnd, self.auto)
+                #if self.auto.find_image_click(hwnd, 'img/YN_確定.png'):
                 print(f"[{feature_name}] move_head_north 完成")
 
             else:
@@ -305,6 +335,12 @@ def is_admin():
 
 if __name__ == "__main__":
     if is_admin():
+        # 強制程序進入 DPI Aware 模式，解決座標偏移問題
+        try:
+            ctypes.windll.shcore.SetProcessDpiAwareness(1)
+        except Exception:
+            ctypes.windll.user32.SetProcessDPIAware()
+
         # 隱藏背景的終端機視窗 (如果目前是透過 python.exe 啟動)
         whnd = ctypes.windll.kernel32.GetConsoleWindow()
         if whnd != 0:
