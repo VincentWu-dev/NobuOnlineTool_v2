@@ -68,6 +68,9 @@ def dream_dungeon_loop(hwnd, automation, state_check, nobu_action, stop_event, u
             if state_check.is_combat_end(hwnd, automation):
                 print("[冥宮掛機] 戰鬥疑似結束，切換狀態：戰鬥結束點選")
                 current_state = DungeonState.BATTLE_END
+            elif state_check.is_dead(hwnd, automation):
+                print("[冥宮掛機] 偵測到死亡，切換狀態：死亡檢查")
+                current_state = DungeonState.DEATH_CHECK
             else:
                 # 戰鬥中通常不需要頻繁點擊，每秒檢查一次即可
                 time.sleep(1)
@@ -79,25 +82,29 @@ def dream_dungeon_loop(hwnd, automation, state_check, nobu_action, stop_event, u
             
             # 判斷結算畫面是否消失 (搜尋一般探索時的 UI 圖像)
             if not state_check.is_combat_in(hwnd, automation):
-                print("[冥宮掛機] 結算完成，進入死亡檢查")
-                current_state = DungeonState.DEATH_CHECK
+                print("[冥宮掛機] 結算完成，移動進入下一層")
+                current_state = DungeonState.NEXT_FLOOR
             time.sleep(0.5)
 
         # --- 狀態 4: 判斷是否死亡 ---
         elif current_state == DungeonState.DEATH_CHECK:
-            # 搜尋「回到起點」或「冥界之門」相關對話框
+            # 搜尋成佛圖示
             if state_check.is_dead(hwnd, automation):
-                print("[冥宮掛機] 偵測到死亡/回到起點，進行轉向...")
+                print("[冥宮掛機] 偵測到死亡，關閉死亡對話...")
                 # 送出 Enter 關閉死亡對話
                 automation.send_key(hwnd, VK_ENTER, hold_time=0.1)
+                time.sleep(0.5)
+                if automation.find_image_click(hwnd, 'img/YN_確定.png'):
+                    print("[冥宮掛機] 按下確定按鍵")
                 time.sleep(1)
+                #nobu_action.move_head_north(hwnd, automation)
+                #current_state = DungeonState.RECALL_PARTY
+            else:
+                print("[冥宮掛機] 離開死亡對話，轉向正北，進入重新叫出隊友狀態...")
                 # 執行轉向正北
                 nobu_action.move_head_north(hwnd, automation)
                 time.sleep(1)
                 current_state = DungeonState.RECALL_PARTY
-            else:
-                print("[冥宮掛機] 未發現死亡跡象，繼續前進")
-                current_state = DungeonState.NEXT_FLOOR
 
         # --- 狀態 5: 重新叫出隊伍 ---
         elif current_state == DungeonState.RECALL_PARTY:
@@ -108,7 +115,7 @@ def dream_dungeon_loop(hwnd, automation, state_check, nobu_action, stop_event, u
             
             time.sleep(1) # 等待隊伍載入的時間
             
-            # 完成後回到初始狀態
+            # 完成後回到下一層狀態
             current_state = DungeonState.FINDING_TARGET
         
         # --- 狀態 6: 下一層 ---
