@@ -31,14 +31,15 @@ def start_crafting_loop(hwnd, automation, stop_event, template_path=None):
 
     print("[稼業連點] 迴圈已結束")
 
-def dream_dungeon_loop(hwnd, automation, state_check, nobu_action, stop_event, update_floor_callback=None):
+def dream_dungeon_loop(hwnd, automation, state_check, nobu_action, stop_event,current_state=DungeonState.FINDING_TARGET,
+                       hero_team_index = 3, update_floor_callback=None):
     """
     冥宮掛機邏輯 (狀態機實作)
     :param update_floor_callback: 用於更新主畫面樓層數的回調函數
     """
     print("[冥宮掛機] 任務開始")
     floor_count = 0
-    current_state = DungeonState.FINDING_TARGET
+    #current_state = DungeonState.FINDING_TARGET
     
     # 取得鍵碼
     VK_W = NobunagaVKKey.VK_W.value
@@ -46,8 +47,15 @@ def dream_dungeon_loop(hwnd, automation, state_check, nobu_action, stop_event, u
     VK_V = NobunagaVKKey.VK_V.value
     VK_N = NobunagaVKKey.VK_N.value
     VK_J = NobunagaVKKey.VK_J.value
+    VK_Y = NobunagaVKKey.VK_Y.value
+    
 
 
+    while not automation.find_image(hwnd, 'img/對象NPC.png'):
+        print(f"對象不是NPC. Y鍵切換")
+        automation.send_key(hwnd, VK_Y, hold_time=0.2)
+        time.sleep(1.0)
+        
     while not stop_event.is_set():
         # --- 狀態 1: 前進至目標 ---
         if current_state == DungeonState.FINDING_TARGET:
@@ -96,7 +104,7 @@ def dream_dungeon_loop(hwnd, automation, state_check, nobu_action, stop_event, u
                 time.sleep(0.5)
                 if automation.find_image_click(hwnd, 'img/YN_確定.png'):
                     print("[冥宮掛機] 按下確定按鍵")
-                time.sleep(1)
+                time.sleep(3)
                 #nobu_action.move_head_north(hwnd, automation)
                 #current_state = DungeonState.RECALL_PARTY
             else:
@@ -111,7 +119,7 @@ def dream_dungeon_loop(hwnd, automation, state_check, nobu_action, stop_event, u
             print("[冥宮掛機] 正在重新叫出隊伍/隊友...")
             #叫出隊伍三
             #automation.send_key(hwnd, VK_V, hold_time=0.2)
-            nobu_action.menu_team_hero_select(hwnd, automation, hero_team_index=3)
+            nobu_action.menu_team_hero_select(hwnd, automation, hero_team_index)
             
             time.sleep(1) # 等待隊伍載入的時間
             

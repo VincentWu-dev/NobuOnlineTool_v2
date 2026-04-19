@@ -9,6 +9,7 @@ import win32api
 import win32con
 from pywinauto import Application
 from nobunaga_automation import NobunagaAutomation, NobunagaStateCheck, NobunagaAction
+from nobunaga_utils import DungeonState
 import crafting_logic
 
 class TextRedirector:
@@ -114,7 +115,7 @@ class NobunagaToolApp:
         frame_right.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
         
         self.lb_features = tk.Listbox(frame_right, font=("Microsoft JhengHei", 10), exportselection=False)
-        features = ["稼業連點", "冥宮掛機", "跟隨戰鬥", "測試選項一", "測試選項二"]
+        features = ["稼業連點", "冥宮掛機", "跟隨戰鬥","冥泉掛機", "測試選項一", "測試選項二"]
         for f in features:
             self.lb_features.insert(tk.END, f)
         self.lb_features.pack(fill=tk.BOTH, expand=True)
@@ -253,6 +254,14 @@ class NobunagaToolApp:
                     update_floor_callback=self._update_dungeon_floor,
                     item_use=self.item_use_var.get()
                 )
+            elif feature_name == "冥泉掛機":
+                # 呼叫獨立的冥泉邏輯
+                # 重置樓層數
+                self._update_dungeon_floor(0)
+                crafting_logic.dream_dungeon_loop(
+                    hwnd, self.auto, self.state_check,self.nobu_action, self.stop_event, hero_team_index=2,
+                    update_floor_callback=self._update_dungeon_floor
+                )
 
 
             elif feature_name == "測試選項一":
@@ -265,8 +274,12 @@ class NobunagaToolApp:
 
                 print(f"[{feature_name}] team_hero_select 完成")
             elif feature_name == "測試選項二":
-                self.nobu_action.move_head_north(hwnd, self.auto)
+                #self.nobu_action.move_head_north(hwnd, self.auto)
                 #if self.auto.find_image_click(hwnd, 'img/YN_確定.png'):
+                crafting_logic.dream_dungeon_loop(
+                    hwnd, self.auto, self.state_check,self.nobu_action, self.stop_event, current_state=DungeonState.DEATH_CHECK,
+                    update_floor_callback=self._update_dungeon_floor
+                )
                 print(f"[{feature_name}] move_head_north 完成")
 
             else:

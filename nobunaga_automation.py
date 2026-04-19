@@ -5,7 +5,7 @@ import win32gui
 import win32api
 import win32con
 from PIL import ImageGrab
-from nobunaga_utils import NobunagaVKKey
+from nobunaga_utils import NobunagaVKKey, get_resource_path
 
 class NobunagaAutomation:
     """
@@ -27,6 +27,9 @@ class NobunagaAutomation:
         :return: 若找到則傳回 (relative_x, relative_y)，否則傳回 None
         """
         try:
+            # 確保路徑在打包環境下也能正確指向
+            template_path = get_resource_path(template_path)
+
             # 取得視窗座標
             rect = win32gui.GetWindowRect(hwnd)
             # 擷取視窗畫面 (left, top, right, bottom)
@@ -129,10 +132,12 @@ class NobunagaAutomation:
         :return: 若找到並成功發送點擊訊息傳回 True，否則返回 False
         """
         match_pos = self.find_image(hwnd, template_path, start_x, start_y)
+        # template_path 處理已包含在 find_image 內，但下方讀取樣板時仍需處理
+        template_full_path = get_resource_path(template_path)
         if match_pos:
             try:
                 # 讀取樣板以獲取寬高，用來計算中心點
-                template = cv2.imdecode(np.fromfile(template_path, dtype=np.uint8), cv2.IMREAD_COLOR)
+                template = cv2.imdecode(np.fromfile(template_full_path, dtype=np.uint8), cv2.IMREAD_COLOR)
                 if template is None:
                     return False
                 
@@ -262,14 +267,15 @@ class NobunagaAction:
         VK_I = NobunagaVKKey.VK_I.value
         VK_K = NobunagaVKKey.VK_K.value
         VK_ENTER = NobunagaVKKey.VK_ENTER.value
+        VK_ESCAPE = NobunagaVKKey.VK_ESCAPE.value
 
-        # 1. Z鍵開啟menu
-        automation.send_key(hwnd, VK_Z, hold_time=0.2)
-        time.sleep(0.5)  # 等待選單動畫
 
-        # 2. 搜尋 跟隨NPC.png並且滑鼠左點點擊
-        if not automation.find_image_click(hwnd, 'img/跟隨NPC.png'):
-            return False
+        # 1. Z鍵開啟menu 搜尋 跟隨NPC.png並且滑鼠左點點擊
+        while not automation.find_image_click(hwnd, 'img/跟隨NPC.png'):
+            automation.send_key(hwnd, VK_ESCAPE, hold_time=0.2)
+            time.sleep(0.5)
+            automation.send_key(hwnd, VK_Z, hold_time=0.2)
+            
         time.sleep(0.5)
 
         # 3. 搜尋 英傑.png並且滑鼠左點點擊
@@ -279,8 +285,11 @@ class NobunagaAction:
 
         # 4. 按鍵I > Enter > Enter > Enter
         keys = [VK_I, VK_ENTER, VK_ENTER, VK_ENTER]
-        for key in keys:
-            automation.send_key(hwnd, key, hold_time=0.2)
+        automation.send_key(hwnd, VK_I, hold_time=0.2)
+        time.sleep(0.3)
+
+        while not automation.find_image(hwnd, 'img/英傑選單_一併登錄.png'):
+            automation.send_key(hwnd, VK_ENTER, hold_time=0.2)
             time.sleep(0.3)
         
         time.sleep(0.5)
@@ -289,13 +298,13 @@ class NobunagaAction:
         # 如果 hero_team_index 為 1 或 0，則不執行循環
         for _ in range(max(0, hero_team_index - 1)):
             automation.send_key(hwnd, VK_K, hold_time=0.2)
-            time.sleep(0.3)
+            time.sleep(0.5)
         
         # 6. Enter > Enter
         keys = [VK_ENTER, VK_ENTER, VK_ENTER]
         for key in keys:
             automation.send_key(hwnd, key, hold_time=0.2)
-            time.sleep(0.3)
+            time.sleep(0.5)
 
         return True
 

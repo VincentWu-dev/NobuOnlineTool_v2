@@ -1,6 +1,16 @@
+import os
+import sys
 import win32api
 import win32con
 from enum import Enum
+
+def get_resource_path(relative_path):
+    """ 取得資源的絕對路徑，支援開發環境與 auto-py-to-exe 打包後的環境 """
+    if hasattr(sys, '_MEIPASS'):
+        # PyInstaller 打包後的路徑
+        return os.path.join(sys._MEIPASS, relative_path)
+    # 開發環境下的路徑 (相對於目前執行目錄或指定的基準路徑)
+    return os.path.join(os.path.abspath("."), relative_path)
 
 class NobunagaVKKey(Enum):
     VK_ENTER = win32con.VK_RETURN
@@ -17,6 +27,8 @@ class NobunagaVKKey(Enum):
     VK_V = 0x56
     VK_N = 0x4E  # 假設用於轉向北方或重置視角的按鍵
     VK_Z = 0x5A # 滑鼠右鍵選單
+    VK_Y = 0x59 #選取對象
+
 
 
 class DungeonState(Enum):
@@ -36,13 +48,13 @@ class NobuNagaImageList:
     集中管理所有圖檔路徑，方便維護與調用。
     """
     # 戰鬥相關
-    IN_BATTLE = './img/戰鬥中.png'
-    BATTLE_RESULT = './img/戰鬥結束_剩下.png'
-    EXPLORATION_UI = './img/exploration_ui.png'
+    IN_BATTLE = get_resource_path('img/戰鬥中.png')
+    BATTLE_RESULT = get_resource_path('img/戰鬥結束_剩下.png')
+    EXPLORATION_UI = get_resource_path('img/exploration_ui.png')
     
     # 狀態相關
-    DEATH_DIALOG = './img/death_dialog.png'
-    CRAFTING_STOP = './img/材料不夠.png'
+    DEATH_DIALOG = get_resource_path('img/death_dialog.png')
+    CRAFTING_STOP = get_resource_path('img/材料不夠.png')
 
     @classmethod
     def get_dreamdungeon_config(cls):
